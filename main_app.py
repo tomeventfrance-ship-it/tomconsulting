@@ -59,17 +59,16 @@ def gemini_call(messages):
     if not GEMINI_KEY:
         raise RuntimeError("Missing GEMINI_API_KEY")
 
-    # Gemini via endpoint generateContent
-   GEMINI_MODEL = "gemini-1.5-flash"
-url = f"https://generativelanguage.googleapis.com/v1/models/{GEMINI_MODEL}:generateContent?key={GEMINI_KEY}"
+    # ✅ Modèle et endpoint fiables
+    GEMINI_MODEL = "gemini-1.5-flash-latest"
+    url = f"https://generativelanguage.googleapis.com/v1/models/{GEMINI_MODEL}:generateContent?key={GEMINI_KEY}"
 
-
-    # On transforme l'historique en "contents"
     contents = []
     for m in messages:
         role = m["role"]
         text = m["content"]
-        # Gemini accepte role user/model. On map assistant -> model, system -> user (mais on injecte system dans le prompt)
+
+        # Gemini accepte role user/model
         if role == "assistant":
             contents.append({"role": "model", "parts": [{"text": text}]})
         else:
@@ -84,14 +83,20 @@ url = f"https://generativelanguage.googleapis.com/v1/models/{GEMINI_MODEL}:gener
         }
     }
 
-    r = requests.post(url, headers={"Content-Type": "application/json"}, data=json.dumps(payload), timeout=60)
+    r = requests.post(
+        url,
+        headers={"Content-Type": "application/json"},
+        data=json.dumps(payload),
+        timeout=60
+    )
     r.raise_for_status()
     data = r.json()
-    # extraction texte
+
     try:
         return data["candidates"][0]["content"]["parts"][0]["text"]
     except Exception:
         return str(data)
+
 
 # -------------------------
 # UI
