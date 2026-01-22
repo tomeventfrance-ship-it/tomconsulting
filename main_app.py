@@ -14,13 +14,18 @@ os.makedirs("data", exist_ok=True)
 conn = db_connect(DB_PATH)
 
 st.subheader("1) Upload CSV")
-up = st.file_uploader("Importer ton export CSV", type=["csv"])
+up = st.file_uploader("Importer ton export CSV ou Excel", type=["csv", "xlsx"])
+
 
 if up is None:
     st.info("Importe un CSV pour commencer.")
     st.stop()
 
-df = pd.read_csv(up)
+if up.name.endswith(".csv"):
+    df = pd.read_csv(up)
+else:
+    df = pd.read_excel(up)
+
 st.success("CSV chargé ✅")
 st.dataframe(df.head(20), use_container_width=True)
 
