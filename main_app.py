@@ -60,7 +60,7 @@ def gemini_call(messages):
         raise RuntimeError("Missing GEMINI_API_KEY")
 
     # Gemini via endpoint generateContent
-   GEMINI_MODEL = "gemini-1.5-flash-latest"
+   GEMINI_MODEL = "gemini-1.5-flash"
 url = f"https://generativelanguage.googleapis.com/v1/models/{GEMINI_MODEL}:generateContent?key={GEMINI_KEY}"
 
 
