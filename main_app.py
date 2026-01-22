@@ -56,14 +56,16 @@ def gemini_call(messages):
     if not GEMINI_KEY:
         raise RuntimeError("Missing GEMINI_API_KEY")
 
-    model = "gemini-1.5-flash-latest"
-    url = f"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent?key={GEMINI_KEY}"
+    model = gemini_pick_model()
+    if not model:
+        raise RuntimeError("Aucun modèle Gemini disponible pour cette clé (ListModels vide ou sans generateContent).")
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_KEY}"
 
     contents = []
     for m in messages:
         role = m["role"]
         text = m["content"]
-
         if role == "assistant":
             contents.append({"role": "model", "parts": [{"text": text}]})
         else:
@@ -81,7 +83,6 @@ def gemini_call(messages):
     r = requests.post(url, headers={"Content-Type": "application/json"}, json=payload, timeout=60)
     r.raise_for_status()
     data = r.json()
-
     return data["candidates"][0]["content"]["parts"][0]["text"]
 
 
