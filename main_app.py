@@ -10,6 +10,36 @@ st.title("ia-consulting-tce")
 # CONFIG
 # -------------------------
 GEMINI_KEY = st.secrets.get("GEMINI_API_KEY", None) if hasattr(st, "secrets") else None
+def gemini_pick_model():
+    """
+    Récupère la liste des modèles disponibles pour TON API key
+    et choisit un modèle qui supporte generateContent.
+    """
+    if not GEMINI_KEY:
+        return None
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_KEY}"
+    r = requests.get(url, timeout=30)
+    r.raise_for_status()
+    data = r.json()
+
+    models = data.get("models", [])
+    candidates = []
+    for m in models:
+        supported = m.get("supportedGenerationMethods", []) or []
+        name = m.get("name", "")
+        if "generateContent" in supported and name.startswith("models/"):
+            candidates.append(name.replace("models/", ""))
+
+    prefer = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
+
+    for p in prefer:
+        for c in candidates:
+            if c.startswith(p):
+                return c
+
+    return candidates[0] if candidates else None
+
 GEMINI_MODEL = "gemini-1.5-flash"  # bon / rapide / souvent quota gratuit
 
 SYSTEM_RULES = """
