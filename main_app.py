@@ -60,7 +60,9 @@ def gemini_call(messages):
         raise RuntimeError("Missing GEMINI_API_KEY")
 
     # Gemini via endpoint generateContent
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_KEY}"
+   GEMINI_MODEL = "gemini-1.5-flash-latest"
+url = f"https://generativelanguage.googleapis.com/v1/models/{GEMINI_MODEL}:generateContent?key={GEMINI_KEY}"
+
 
     # On transforme l'historique en "contents"
     contents = []
