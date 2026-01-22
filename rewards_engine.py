@@ -1,32 +1,35 @@
 import sqlite3
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
 
 
 # -----------------------------
-# CONFIG (à adapter à tes paliers exacts)
+# RÈGLES CRÉATEURS (selon tes règles)
 # -----------------------------
 CREATORS_MIN_DAYS = 12
 CREATORS_MIN_HOURS = 25
-CREATORS_ROUND_STEP = 100  # arrondi à la centaine inférieure
-THRESHOLD_150K = 150_000
+CREATORS_ROUND_STEP = 100           # arrondi à la centaine inférieure
+THRESHOLD_150K = 150_000            # suivi historique par ID
 
-# Exemple de paliers (à remplacer par TES paliers validés)
-# percent_reward est déjà "palier +0,5 point" (ex: 2.0% -> 2.5%)
+# PALIERS déduits de ton export (on prend les taux MAX observés = version mise à jour +0,5 point)
+# <75k = 0
 CREATORS_TIERS = [
-    {"name": "T1", "min": 0,      "max": 49_999,  "percent": 0.025, "bonus": 0},
-    {"name": "T2", "min": 50_000, "max": 149_999, "percent": 0.035, "bonus": 0},
-    {"name": "T3", "min": 150_000,"max": None,    "percent": 0.045, "bonus": 0},
+    {"name": "<75 000",              "min": 0,        "max": 74_999,     "percent": 0.000, "bonus": 0},
+    {"name": "75 000-500 000",       "min": 75_000,   "max": 500_000,    "percent": 0.020, "bonus": 0},
+    {"name": "500 000-1 000 000",    "min": 500_000,  "max": 1_000_000,  "percent": 0.025, "bonus": 0},
+    {"name": "1 000 000-2 000 000",  "min": 1_000_000,"max": 2_000_000,  "percent": 0.030, "bonus": 0},
+    {"name": "2 000 000-∞",          "min": 2_000_000,"max": None,       "percent": 0.035, "bonus": 0},
 ]
 
+# Statuts texte (au cas où)
 BANNED_STATUSES = {"banni", "ban", "banned", "depart", "départ", "inactive"}
 
 
 # -----------------------------
-# DB (historique 150k)
+# DB historique 150k
 # -----------------------------
 def db_connect(db_path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
@@ -46,7 +49,6 @@ def get_first_150k_date(conn: sqlite3.Connection, creator_id: str) -> Optional[s
     return row[0] if row else None
 
 def set_first_150k_date(conn: sqlite3.Connection, creator_id: str, date_str: str) -> None:
-    # n'écrit que si absent
     cur = conn.cursor()
     cur.execute("SELECT creator_id FROM creator_thresholds WHERE creator_id = ?", (creator_id,))
     if cur.fetchone() is None:
@@ -65,7 +67,7 @@ def floor_to_step(x: float, step: int) -> int:
         return int(np.floor(x))
     return int(np.floor(x / step) * step)
 
-def pick_tier(diamonds: float, tiers: List[Dict]) -> Dict:
+def pick_tier(diamonds: float, tiers: List[dict]) -> dict:
     for t in tiers:
         mn, mx = t["min"], t["max"]
         if mx is None and diamonds >= mn:
@@ -74,6 +76,24 @@ def pick_tier(diamonds: float, tiers: List[Dict]) -> Dict:
             return t
     return tiers[-1]
 
+def is_excluded(status_value) -> bool:
+    """
+    Ton export a une colonne 'Statut excluant' avec souvent 'Non'.
+    On considère exclu si:
+    - valeur = 'oui' / 'true' / '1' / 'banni' / 'depart' etc
+    """
+    if pd.isna(status_value):
+        return False
+    s = str(status_value).strip().lower()
+    if s in ("non", "0", "false", ""):
+        return False
+    if s in ("oui", "1", "true"):
+        return True
+    if s in BANNED_STATUSES:
+        return True
+    # par défaut, toute autre valeur = excluant
+    return True
+
 
 @dataclass
 class ComputeResult:
@@ -81,9 +101,6 @@ class ComputeResult:
     warnings: List[str]
 
 
-# -----------------------------
-# MAIN: compute creators
-# -----------------------------
 def compute_creators(
     df: pd.DataFrame,
     mapping: Dict[str, str],
@@ -92,30 +109,26 @@ def compute_creators(
 ) -> ComputeResult:
     warnings: List[str] = []
 
-    # colonnes requises via mapping
-    need = ["creator_id", "diamonds_month", "live_days_valid", "live_hours_valid", "status"]
+    need = ["creator_id", "diamonds_month", "live_days_valid", "live_hours_valid", "status_excluding"]
     for k in need:
         if k not in mapping or mapping[k] not in df.columns:
             warnings.append(f"Colonne manquante ou non mappée: {k}")
 
-    # si mapping incomplet, on s'arrête proprement
-    if any("Colonne manquante" in w for w in warnings):
-        out = df.copy()
-        return ComputeResult(df=out, warnings=warnings)
+    if warnings:
+        return ComputeResult(df=df.copy(), warnings=warnings)
 
     id_col = mapping["creator_id"]
     d_col = mapping["diamonds_month"]
     days_col = mapping["live_days_valid"]
     hours_col = mapping["live_hours_valid"]
-    status_col = mapping["status"]
+    status_col = mapping["status_excluding"]
 
     out = df.copy()
 
-    # normalisation
+    # Normalisation types
     out[d_col] = pd.to_numeric(out[d_col], errors="coerce").fillna(0)
     out[days_col] = pd.to_numeric(out[days_col], errors="coerce").fillna(0)
     out[hours_col] = pd.to_numeric(out[hours_col], errors="coerce").fillna(0)
-    out[status_col] = out[status_col].astype(str).str.lower().str.strip()
 
     tiers = []
     percents = []
@@ -131,14 +144,14 @@ def compute_creators(
         diamonds = float(r[d_col])
         days = float(r[days_col])
         hours = float(r[hours_col])
-        status = str(r[status_col])
+        excluded = is_excluded(r[status_col])
 
         eligible = True
         rs = []
 
-        if status in BANNED_STATUSES:
+        if excluded:
             eligible = False
-            rs.append(f"statut={status}")
+            rs.append("statut_excluant")
 
         if days < CREATORS_MIN_DAYS:
             eligible = False
@@ -153,7 +166,7 @@ def compute_creators(
         bonus = float(tier.get("bonus", 0))
 
         reward = 0
-        if eligible:
+        if eligible and percent > 0:
             reward_calc = diamonds * percent + bonus
             reward = floor_to_step(reward_calc, CREATORS_ROUND_STEP)
 
@@ -172,14 +185,13 @@ def compute_creators(
         reached_flags.append("Oui" if first is not None else "Non")
         first_dates.append(first or "")
 
-    out["Tier"] = tiers
-    out["%"] = percents
+    out["Palier"] = tiers
+    out["Taux appliqué"] = percents
     out["Bonus"] = bonuses
     out["Récompense (diamants)"] = rewards
     out["Eligible"] = eligibles
     out["Raison inéligibilité"] = reasons
     out["Déjà atteint 150k (Oui/Non)"] = reached_flags
-    out["Date 1er atteinte 150k"] = first_dates
+    out["Premier mois 150k"] = first_dates
 
     return ComputeResult(df=out, warnings=warnings)
-
