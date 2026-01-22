@@ -1,45 +1,53 @@
 import os
+import io
 import streamlit as st
 import pandas as pd
-from datetime import date
+from datetime import date, datetime
 
 from rewards_engine import db_connect, compute_creators
 
 st.set_page_config(page_title="Agent Calcul Récompenses — TCE", layout="wide")
 st.title("Agent Calcul Récompenses — Tom Consulting & Event")
 
+# ⚠️ Note Streamlit Cloud: le disque peut être réinitialisé lors des redéploiements.
+# Pour un historique 150k permanent, il faudra plus tard une DB externe.
 DB_PATH = "data/history.sqlite"
 os.makedirs("data", exist_ok=True)
-
 conn = db_connect(DB_PATH)
 
-st.subheader("1) Upload CSV")
+st.subheader("1) Importer ton export (CSV ou Excel)")
 up = st.file_uploader("Importer ton export CSV ou Excel", type=["csv", "xlsx"])
 
-
 if up is None:
-    st.info("Importe un CSV pour commencer.")
+    st.info("Importe un fichier pour commencer.")
     st.stop()
 
-if up.name.endswith(".csv"):
+# Lecture fichier
+if up.name.lower().endswith(".csv"):
     df = pd.read_csv(up)
 else:
     df = pd.read_excel(up)
 
-st.success("CSV chargé ✅")
-st.dataframe(df.head(20), use_container_width=True)
+st.success(f"Fichier chargé ✅ ({df.shape[0]} lignes, {df.shape[1]} colonnes)")
+st.dataframe(df.head(25), use_container_width=True)
 
-st.subheader("2) Mapping des colonnes (assistant)")
 cols = list(df.columns)
 
-col1, col2 = st.columns(2)
-with col1:
-    creator_id = st.selectbox("creator_id (ID créateur)", cols)
-    diamonds_month = st.selectbox("diamonds_month (Diamants du mois)", cols)
-    live_days_valid = st.selectbox("live_days_valid (Jours live validés)", cols)
-with col2:
-    live_hours_valid = st.selectbox("live_hours_valid (Heures live validées)", cols)
-    status = st.selectbox("status (banni/infractions/départ/ok)", cols)
+# Mapping auto (adapté à TON export)
+def default_index(col_name: str) -> int:
+    return cols.index(col_name) if col_name in cols else 0
+
+st.subheader("2) Mapping des colonnes (pré-rempli)")
+c1, c2 = st.columns(2)
+
+with c1:
+    creator_id = st.selectbox("ID créateur", cols, index=default_index("ID créateur(trice)"))
+    diamonds_month = st.selectbox("Diamants du mois", cols, index=default_index("Diamants"))
+    live_days_valid = st.selectbox("Jours live validés", cols, index=default_index("Jours live validés"))
+
+with c2:
+    live_hours_valid = st.selectbox("Heures live validées", cols, index=default_index("Heures live validées"))
+    status_excluding = st.selectbox("Statut excluant", cols, index=default_index("Statut excluant"))
     as_of = st.date_input("Date de traitement (historique 150k)", value=date.today())
 
 mapping = {
@@ -47,29 +55,30 @@ mapping = {
     "diamonds_month": diamonds_month,
     "live_days_valid": live_days_valid,
     "live_hours_valid": live_hours_valid,
-    "status": status,
+    "status_excluding": status_excluding,
 }
 
-st.subheader("3) Calcul")
+st.subheader("3) Calcul + Export")
 if st.button("Calculer récompenses (Créateurs)"):
     result = compute_creators(df, mapping=mapping, conn=conn, as_of_date=str(as_of))
 
     if result.warnings:
         st.warning(" | ".join(result.warnings))
+        st.stop()
 
-    st.dataframe(result.df.head(50), use_container_width=True)
+    st.success("Calcul terminé ✅")
+    st.dataframe(result.df.head(60), use_container_width=True)
 
     # Export Excel
-    import io
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        result.df.to_excel(writer, index=False, sheet_name="RESULTATS")
+        result.df.to_excel(writer, index=False, sheet_name="RESULTATS_CREATEURS")
+
     st.download_button(
-        "Télécharger Excel",
+        "Télécharger le résultat Excel",
         data=output.getvalue(),
         file_name="resultats_createurs.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
-st.divider()
-st.caption("Règles créateurs appliquées: min 12 jours live + 25h, statut banni/départ inéligible, arrondi centaine inférieure, historique 150k.")
+st.caption("Règles: min 12 jours + 25h, statut excluant => inéligible, arrondi à 100, suivi 150k par ID.")
