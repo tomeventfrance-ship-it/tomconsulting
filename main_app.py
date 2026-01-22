@@ -56,6 +56,7 @@ def gemini_call(messages):
     if not GEMINI_KEY:
         raise RuntimeError("Missing GEMINI_API_KEY")
 
+    model = "gemini-1.5-flash-latest"
     url = f"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent?key={GEMINI_KEY}"
 
     contents = []
@@ -82,6 +83,7 @@ def gemini_call(messages):
     data = r.json()
 
     return data["candidates"][0]["content"]["parts"][0]["text"]
+
 
 
 # -------------------------
