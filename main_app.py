@@ -53,22 +53,16 @@ Demande reçue: {user_text}
 """
 
 def gemini_call(messages):
-    """
-    messages: list of dict {role: "system"|"user"|"assistant", content: str}
-    """
     if not GEMINI_KEY:
         raise RuntimeError("Missing GEMINI_API_KEY")
 
-    # ✅ Modèle et endpoint fiables
-    GEMINI_MODEL = "gemini-1.5-flash-latest"
-    url = f"https://generativelanguage.googleapis.com/v1/models/{GEMINI_MODEL}:generateContent?key={GEMINI_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent?key={GEMINI_KEY}"
 
     contents = []
     for m in messages:
         role = m["role"]
         text = m["content"]
 
-        # Gemini accepte role user/model
         if role == "assistant":
             contents.append({"role": "model", "parts": [{"text": text}]})
         else:
@@ -83,19 +77,11 @@ def gemini_call(messages):
         }
     }
 
-    r = requests.post(
-        url,
-        headers={"Content-Type": "application/json"},
-        data=json.dumps(payload),
-        timeout=60
-    )
+    r = requests.post(url, headers={"Content-Type": "application/json"}, json=payload, timeout=60)
     r.raise_for_status()
     data = r.json()
 
-    try:
-        return data["candidates"][0]["content"]["parts"][0]["text"]
-    except Exception:
-        return str(data)
+    return data["candidates"][0]["content"]["parts"][0]["text"]
 
 
 # -------------------------
