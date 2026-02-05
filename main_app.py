@@ -42,6 +42,7 @@ if rename_map:
     st.info("Colonnes déjà calculées détectées → renommées en '(source)' pour comparer avec le recalcul.")
 
 st.success(f"Fichier chargé ({df.shape[0]} lignes, {df.shape[1]} colonnes)")
+df = df.loc[:, ~df.columns.duplicated()]
 st.dataframe(df.head(25), use_container_width=True)
 
 cols = list(df.columns)
