@@ -6,6 +6,21 @@ from datetime import date
 
 from rewards_engine import db_connect, compute_creators
 
+def make_unique_columns(df: pd.DataFrame) -> pd.DataFrame:
+    counts = {}
+    new_cols = []
+    for c in df.columns:
+        c = str(c)
+        if c in counts:
+            counts[c] += 1
+            new_cols.append(f"{c}__{counts[c]}")
+        else:
+            counts[c] = 0
+            new_cols.append(c)
+    df = df.copy()
+    df.columns = new_cols
+    return df
+
 st.set_page_config(page_title="Agent Calcul Récompenses — TCE", layout="wide")
 st.title("Agent Calcul Récompenses — Tom Consulting & Event")
 
@@ -25,7 +40,8 @@ if up.name.lower().endswith(".csv"):
 
 else:
     df = pd.read_excel(up)
-    
+    df = make_unique_columns(df)
+
     # Supprime les colonnes dupliquées (même nom)
 df = df.loc[:, ~df.columns.duplicated(keep="first")]
 
@@ -86,6 +102,7 @@ if st.button("Calculer récompenses (Créateurs)"):
         st.stop()
 
     out = result.df
+    out = make_unique_columns(out)
     out = out.loc[:, ~out.columns.duplicated(keep="first")]
 
     total_rewards = int(
