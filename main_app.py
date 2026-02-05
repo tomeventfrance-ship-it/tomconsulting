@@ -86,19 +86,30 @@ if st.button("Calculer récompenses (Créateurs)"):
         st.stop()
 
     out = result.df
-    # Sécurise aussi le résultat (au cas où)
-out = out.loc[:, ~out.columns.duplicated(keep="first")]
+    out = out.loc[:, ~out.columns.duplicated(keep="first")]
 
-
-    total_rewards = int(pd.to_numeric(out["Récompense (diamants)"], errors="coerce").fillna(0).sum())
+    total_rewards = int(
+        pd.to_numeric(out["Récompense (diamants)"], errors="coerce")
+        .fillna(0)
+        .sum()
+    )
     nb_eligibles = int((out["Eligible"] == "OK").sum())
 
-    k1, k2, k3 = st.columns(3)
-    k1.metric("Total récompenses (recalculé)", f"{total_rewards:,}".replace(",", " "))
-    k2.metric("Nb éligibles", nb_eligibles)
-    k3.metric("Nb lignes", out.shape[0])
-
     st.success("Calcul terminé")
+    st.write("Total récompenses (recalculé):", total_rewards)
+    st.write("Nb éligibles:", nb_eligibles)
+
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        out.to_excel(writer, index=False, sheet_name="RESULTATS_CREATEURS")
+
+    st.download_button(
+        "Télécharger le résultat Excel",
+        data=output.getvalue(),
+        file_name="resultats_createurs.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
 
     show_cols = [creator_id, diamonds_month, live_days_valid, live_hours_valid, status_excluding]
 
