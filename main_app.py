@@ -60,10 +60,10 @@ mapping = {
 
 st.subheader("3) Calcul + Export")
 if st.button("Calculer récompenses (Créateurs)"):
-  result = compute_creators(df, mapping, conn, str(as_of))
+   result = compute_creators(df, mapping, conn, str(as_of))
 
     if result.warnings:
-        st.warning(" | ".join(result.warnings))
+        st.error(" | ".join(result.warnings))
         st.stop()
 
     st.success("Calcul terminé ✅")
