@@ -3,7 +3,13 @@ import io
 import streamlit as st
 import pandas as pd
 from datetime import date
-from rewards_engine import db_connect, compute_creators
+
+import sqlite3
+import pandas as pd
+from dataclasses import dataclass
+from typing import Dict, List
+import math
+
 st.set_page_config(page_title="Agent Calcul Récompenses — TCE", layout="wide")
 st.title("Agent Calcul Récompenses — Tom Consulting & Event")
 
