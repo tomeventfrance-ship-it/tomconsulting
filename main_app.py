@@ -22,8 +22,13 @@ if up is None:
 
 if up.name.lower().endswith(".csv"):
     df = pd.read_csv(up)
+
 else:
     df = pd.read_excel(up)
+    
+    # Supprime les colonnes dupliquées (même nom)
+df = df.loc[:, ~df.columns.duplicated(keep="first")]
+
 
 # Renommer colonnes déjà calculées en (source) pour comparaison
 existing_calc_cols = [
@@ -81,6 +86,9 @@ if st.button("Calculer récompenses (Créateurs)"):
         st.stop()
 
     out = result.df
+    # Sécurise aussi le résultat (au cas où)
+out = out.loc[:, ~out.columns.duplicated(keep="first")]
+
 
     total_rewards = int(pd.to_numeric(out["Récompense (diamants)"], errors="coerce").fillna(0).sum())
     nb_eligibles = int((out["Eligible"] == "OK").sum())
