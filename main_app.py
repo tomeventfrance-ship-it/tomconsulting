@@ -11,8 +11,8 @@ st.title("Agent Calcul Récompenses — Tom Consulting & Event")
 
 # DB locale
 DB_PATH = "data/history.sqlite"
-os.makedirs("data", exist_ok=True)
 conn = db_connect(DB_PATH)
+
 
 st.subheader("1) Upload fichier (CSV ou Excel)")
 up = st.file_uploader("Importer ton export CSV ou Excel", type=["csv", "xlsx"])
