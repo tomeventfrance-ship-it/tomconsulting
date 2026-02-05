@@ -147,6 +147,35 @@ if st.button("Calculer récompenses (Créateurs)"):
 
     show_cols += ["Eligible", "Raison inéligibilité", "Déjà atteint 150k (Oui/Non)", "Premier mois 150k"]
     show_cols = [c for c in show_cols if c in out.columns]
+# --- SECURITE ANTI-DOUBLONS (OBLIGATOIRE AVANT TOUT AFFICHAGE) ---
+def make_unique_columns_inplace(df):
+    counts = {}
+    new_cols = []
+    for c in df.columns:
+        c = str(c)
+        if c in counts:
+            counts[c] += 1
+            new_cols.append(f"{c}__{counts[c]}")
+        else:
+            counts[c] = 0
+            new_cols.append(c)
+    df.columns = new_cols
+    return df
+
+# out existe ici (résultat du calcul)
+out = out.copy()
+make_unique_columns_inplace(out)
+
+# show_cols peut contenir des doublons aussi -> on le nettoie
+seen = set()
+clean_show_cols = []
+for c in show_cols:
+    if c not in seen and c in out.columns:
+        clean_show_cols.append(c)
+        seen.add(c)
+
+# Affichage sécurisé (plus jamais de crash pyarrow)
+st.dataframe(out[clean_show_cols].head(200), use_container_width=True)
 
     st.dataframe(out[show_cols].head(80), use_container_width=True)
 
