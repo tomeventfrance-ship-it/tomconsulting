@@ -177,7 +177,7 @@ for c in show_cols:
 # Affichage sécurisé (plus jamais de crash pyarrow)
 st.dataframe(out[clean_show_cols].head(200), use_container_width=True)
 
-    st.dataframe(out[show_cols].head(80), use_container_width=True)
+st.dataframe(out[show_cols].head(80), use_container_width=True)
 
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
