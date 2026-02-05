@@ -62,7 +62,7 @@ st.subheader("3) Calcul + Export")
 if st.button("Calculer récompenses (Créateurs)"):
    result = compute_creators(df, mapping, conn, str(as_of))
 
-    if result.warnings:
+if result.warnings:
         st.error(" | ".join(result.warnings))
         st.stop()
 
