@@ -3,7 +3,6 @@ import io
 import streamlit as st
 import pandas as pd
 from datetime import date
-
 from rewards_engine import db_connect, compute_creators
 
 st.set_page_config(page_title="Agent Calcul Récompenses — TCE", layout="wide")
