@@ -9,10 +9,9 @@ from rewards_engine import db_connect, compute_creators
 st.set_page_config(page_title="Agent Calcul Récompenses — TCE", layout="wide")
 st.title("Agent Calcul Récompenses — Tom Consulting & Event")
 
-# DB locale
 DB_PATH = "data/history.sqlite"
+os.makedirs("data", exist_ok=True)
 conn = db_connect(DB_PATH)
-
 
 st.subheader("1) Upload fichier (CSV ou Excel)")
 up = st.file_uploader("Importer ton export CSV ou Excel", type=["csv", "xlsx"])
@@ -21,13 +20,12 @@ if up is None:
     st.info("Importe un fichier pour commencer.")
     st.stop()
 
-# Lecture du fichier
 if up.name.lower().endswith(".csv"):
     df = pd.read_csv(up)
 else:
     df = pd.read_excel(up)
 
-# Renommer les colonnes calculées déjà présentes (source) pour comparaison
+# Renommer colonnes déjà calculées en (source) pour comparaison
 existing_calc_cols = [
     "Palier",
     "Taux appliqué",
@@ -41,7 +39,7 @@ existing_calc_cols = [
 rename_map = {c: f"{c} (source)" for c in existing_calc_cols if c in df.columns}
 if rename_map:
     df = df.rename(columns=rename_map)
-    st.info("Colonnes déjà calculées détectées → renommées en '(source)' pour comparaison.")
+    st.info("Colonnes déjà calculées détectées → renommées en '(source)' pour comparer avec le recalcul.")
 
 st.success(f"Fichier chargé ({df.shape[0]} lignes, {df.shape[1]} colonnes)")
 st.dataframe(df.head(25), use_container_width=True)
@@ -57,7 +55,7 @@ c1, c2 = st.columns(2)
 with c1:
     creator_id = st.selectbox("ID créateur", cols, index=idx("ID créateur(trice)", 0))
     diamonds_month = st.selectbox("Diamants du mois", cols, index=idx("Diamants", 0))
-    live_days_valid = st.selectbox("Jours live validés", cols, index=idx("Jours live validés", 0))
+    live_days_valid = st.selectbox("Jours live validés", cols, index=idx("Jours de passage en LIVE validés", 0))
 
 with c2:
     live_hours_valid = st.selectbox("Heures live validées", cols, index=idx("Heures live validées", 0))
@@ -75,7 +73,6 @@ mapping = {
 st.subheader("3) Calcul + Comparaison + Export")
 
 if st.button("Calculer récompenses (Créateurs)"):
-    # Appel compatible (sans keywords) pour éviter les erreurs
     result = compute_creators(df, mapping, conn, str(as_of))
 
     if result.warnings:
@@ -94,7 +91,6 @@ if st.button("Calculer récompenses (Créateurs)"):
 
     st.success("Calcul terminé")
 
-    # Affichage comparatif
     show_cols = [creator_id, diamonds_month, live_days_valid, live_hours_valid, status_excluding]
 
     if "Palier (source)" in out.columns:
@@ -117,7 +113,6 @@ if st.button("Calculer récompenses (Créateurs)"):
 
     st.dataframe(out[show_cols].head(80), use_container_width=True)
 
-    # Export Excel
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         out.to_excel(writer, index=False, sheet_name="RESULTATS_CREATEURS")
