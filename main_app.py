@@ -2,52 +2,66 @@ import os
 import io
 import streamlit as st
 import pandas as pd
-from datetime import date, datetime
+from datetime import date
 
 from rewards_engine import db_connect, compute_creators
 
 st.set_page_config(page_title="Agent Calcul Récompenses — TCE", layout="wide")
 st.title("Agent Calcul Récompenses — Tom Consulting & Event")
 
-# ⚠️ Note Streamlit Cloud: le disque peut être réinitialisé lors des redéploiements.
-# Pour un historique 150k permanent, il faudra plus tard une DB externe.
+# DB locale
 DB_PATH = "data/history.sqlite"
 os.makedirs("data", exist_ok=True)
 conn = db_connect(DB_PATH)
 
-st.subheader("1) Importer ton export (CSV ou Excel)")
+st.subheader("1) Upload fichier (CSV ou Excel)")
 up = st.file_uploader("Importer ton export CSV ou Excel", type=["csv", "xlsx"])
 
 if up is None:
     st.info("Importe un fichier pour commencer.")
     st.stop()
 
-# Lecture fichier
+# Lecture du fichier
 if up.name.lower().endswith(".csv"):
     df = pd.read_csv(up)
 else:
     df = pd.read_excel(up)
 
-st.success(f"Fichier chargé ✅ ({df.shape[0]} lignes, {df.shape[1]} colonnes)")
+# Renommer les colonnes calculées déjà présentes (source) pour comparaison
+existing_calc_cols = [
+    "Palier",
+    "Taux appliqué",
+    "Bonus",
+    "Récompense (diamants)",
+    "Déjà atteint 150k (Oui/Non)",
+    "Premier mois 150k",
+    "Eligible",
+    "Raison inéligibilité",
+]
+rename_map = {c: f"{c} (source)" for c in existing_calc_cols if c in df.columns}
+if rename_map:
+    df = df.rename(columns=rename_map)
+    st.info("Colonnes déjà calculées détectées → renommées en '(source)' pour comparaison.")
+
+st.success(f"Fichier chargé ({df.shape[0]} lignes, {df.shape[1]} colonnes)")
 st.dataframe(df.head(25), use_container_width=True)
 
 cols = list(df.columns)
 
-# Mapping auto (adapté à TON export)
-def default_index(col_name: str) -> int:
-    return cols.index(col_name) if col_name in cols else 0
+def idx(colname: str, fallback: int = 0) -> int:
+    return cols.index(colname) if colname in cols else fallback
 
 st.subheader("2) Mapping des colonnes (pré-rempli)")
 c1, c2 = st.columns(2)
 
 with c1:
-    creator_id = st.selectbox("ID créateur", cols, index=default_index("ID créateur(trice)"))
-    diamonds_month = st.selectbox("Diamants du mois", cols, index=default_index("Diamants"))
-    live_days_valid = st.selectbox("Jours live validés", cols, index=default_index("Jours live validés"))
+    creator_id = st.selectbox("ID créateur", cols, index=idx("ID créateur(trice)", 0))
+    diamonds_month = st.selectbox("Diamants du mois", cols, index=idx("Diamants", 0))
+    live_days_valid = st.selectbox("Jours live validés", cols, index=idx("Jours live validés", 0))
 
 with c2:
-    live_hours_valid = st.selectbox("Heures live validées", cols, index=default_index("Heures live validées"))
-    status_excluding = st.selectbox("Statut excluant", cols, index=default_index("Statut excluant"))
+    live_hours_valid = st.selectbox("Heures live validées", cols, index=idx("Heures live validées", 0))
+    status_excluding = st.selectbox("Statut excluant", cols, index=idx("Statut excluant", 0))
     as_of = st.date_input("Date de traitement (historique 150k)", value=date.today())
 
 mapping = {
@@ -58,21 +72,55 @@ mapping = {
     "status_excluding": status_excluding,
 }
 
-st.subheader("3) Calcul + Export")
-if st.button("Calculer récompenses (Créateurs)"):
-   result = compute_creators(df, mapping, conn, str(as_of))
+st.subheader("3) Calcul + Comparaison + Export")
 
-if result.warnings:
+if st.button("Calculer récompenses (Créateurs)"):
+    # Appel compatible (sans keywords) pour éviter les erreurs
+    result = compute_creators(df, mapping, conn, str(as_of))
+
+    if result.warnings:
         st.error(" | ".join(result.warnings))
         st.stop()
 
-    st.success("Calcul terminé ✅")
-    st.dataframe(result.df.head(60), use_container_width=True)
+    out = result.df
+
+    total_rewards = int(pd.to_numeric(out["Récompense (diamants)"], errors="coerce").fillna(0).sum())
+    nb_eligibles = int((out["Eligible"] == "OK").sum())
+
+    k1, k2, k3 = st.columns(3)
+    k1.metric("Total récompenses (recalculé)", f"{total_rewards:,}".replace(",", " "))
+    k2.metric("Nb éligibles", nb_eligibles)
+    k3.metric("Nb lignes", out.shape[0])
+
+    st.success("Calcul terminé")
+
+    # Affichage comparatif
+    show_cols = [creator_id, diamonds_month, live_days_valid, live_hours_valid, status_excluding]
+
+    if "Palier (source)" in out.columns:
+        show_cols += ["Palier (source)", "Palier"]
+    else:
+        show_cols += ["Palier"]
+
+    if "Taux appliqué (source)" in out.columns:
+        show_cols += ["Taux appliqué (source)", "Taux appliqué"]
+    else:
+        show_cols += ["Taux appliqué"]
+
+    if "Récompense (diamants) (source)" in out.columns:
+        show_cols += ["Récompense (diamants) (source)", "Récompense (diamants)"]
+    else:
+        show_cols += ["Récompense (diamants)"]
+
+    show_cols += ["Eligible", "Raison inéligibilité", "Déjà atteint 150k (Oui/Non)", "Premier mois 150k"]
+    show_cols = [c for c in show_cols if c in out.columns]
+
+    st.dataframe(out[show_cols].head(80), use_container_width=True)
 
     # Export Excel
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        result.df.to_excel(writer, index=False, sheet_name="RESULTATS_CREATEURS")
+        out.to_excel(writer, index=False, sheet_name="RESULTATS_CREATEURS")
 
     st.download_button(
         "Télécharger le résultat Excel",
