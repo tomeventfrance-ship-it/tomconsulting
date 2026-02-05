@@ -137,13 +137,13 @@ def compute_creators(
     """
     warnings: List[str] = []
 
-    required_keys = [
-        "creator_id",
-        "diamonds_month",
-        "live_days_valid",
-        "live_hours_valid",
-        "status_excluding",
-        "days_since_join",
+   required_keys = [
+    "creator_id",
+    "diamonds_month",
+    "live_days_valid",
+    "live_hours_valid",
+    "status_excluding",
+]
     ]
     for k in required_keys:
         col = mapping.get(k)
@@ -158,8 +158,7 @@ def compute_creators(
     days_col = mapping["live_days_valid"]
     hours_col = mapping["live_hours_valid"]
     status_col = mapping["status_excluding"]
-    since_col = mapping["days_since_join"]
-
+   
     out = df.copy()
 
     # Normalisation
