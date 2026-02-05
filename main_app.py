@@ -180,8 +180,9 @@ st.dataframe(out[clean_show_cols].head(200), use_container_width=True)
 st.dataframe(out[show_cols].head(80), use_container_width=True)
 
 output = io.BytesIO()
-with pd.ExcelWriter(output, engine="openpyxl") as writer:
-out.to_excel(writer, index=False, sheet_name="RESULTATS_CREATEURS")
+with 
+     pd.ExcelWriter(output, engine="openpyxl") as writer:
+     out.to_excel(writer, index=False, sheet_name="RESULTATS_CREATEURS")
 
     st.download_button(
         "Télécharger le résultat Excel",
