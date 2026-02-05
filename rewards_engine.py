@@ -1,132 +1,179 @@
-import os
-import io
-import streamlit as st
-import pandas as pd
-from datetime import date
-
 import sqlite3
-import pandas as pd
 from dataclasses import dataclass
-from typing import Dict, List
-import math
+from typing import Dict, List, Optional
 
-st.set_page_config(page_title="Agent Calcul Récompenses — TCE", layout="wide")
-st.title("Agent Calcul Récompenses — Tom Consulting & Event")
+import numpy as np
+import pandas as pd
 
-DB_PATH = "data/history.sqlite"
-os.makedirs("data", exist_ok=True)
-conn = def db_connect(db_path: str):
-    return sqlite3.connect(db_path)
+CREATORS_MIN_DAYS = 12
+CREATORS_MIN_HOURS = 25
+CREATORS_ROUND_STEP = 100
+THRESHOLD_150K = 150_000
 
-
-st.subheader("1) Upload fichier (CSV ou Excel)")
-up = st.file_uploader("Importer ton export CSV ou Excel", type=["csv", "xlsx"])
-
-if up is None:
-    st.info("Importe un fichier pour commencer.")
-    st.stop()
-
-if up.name.lower().endswith(".csv"):
-    df = pd.read_csv(up)
-else:
-    df = pd.read_excel(up)
-
-existing_calc_cols = [
-    "Palier",
-    "Taux appliqué",
-    "Bonus",
-    "Récompense (diamants)",
-    "Déjà atteint 150k (Oui/Non)",
-    "Premier mois 150k",
-    "Eligible",
-    "Raison inéligibilité",
+CREATORS_TIERS = [
+    {"name": "<75 000",              "min": 0,        "max": 74_999,     "percent": 0.000, "bonus": 0},
+    {"name": "75 000-500 000",       "min": 75_000,   "max": 500_000,    "percent": 0.020, "bonus": 0},
+    {"name": "500 000-1 000 000",    "min": 500_000,  "max": 1_000_000,  "percent": 0.025, "bonus": 0},
+    {"name": "1 000 000-2 000 000",  "min": 1_000_000,"max": 2_000_000,  "percent": 0.030, "bonus": 0},
+    {"name": "2 000 000-∞",          "min": 2_000_000,"max": None,       "percent": 0.035, "bonus": 0},
 ]
-rename_map = {c: f"{c} (source)" for c in existing_calc_cols if c in df.columns}
-if rename_map:
-    df = df.rename(columns=rename_map)
-    st.info("Colonnes déjà calculées détectées → renommées en '(source)' pour comparaison.")
 
-st.success(f"Fichier chargé ({df.shape[0]} lignes, {df.shape[1]} colonnes)")
-st.dataframe(df.head(25), use_container_width=True)
+BANNED_STATUSES = {"banni", "ban", "banned", "depart", "départ", "inactive"}
 
-cols = list(df.columns)
 
-def idx(colname: str, fallback: int = 0) -> int:
-    return cols.index(colname) if colname in cols else fallback
-
-st.subheader("2) Mapping des colonnes (pré-rempli)")
-c1, c2 = st.columns(2)
-
-with c1:
-    creator_id = st.selectbox("ID créateur", cols, index=idx("ID créateur(trice)", 0))
-    diamonds_month = st.selectbox("Diamants du mois", cols, index=idx("Diamants", 0))
-    live_days_valid = st.selectbox("Jours live validés", cols, index=idx("Jours de passage en LIVE validés", 0))
-
-with c2:
-    live_hours_valid = st.selectbox("Heures live validées", cols, index=idx("Heures live validées", 0))
-    status_excluding = st.selectbox("Statut excluant", cols, index=idx("Statut excluant", 0))
-    as_of = st.date_input("Date de traitement (historique 150k)", value=date.today())
-
-mapping = {
-    "creator_id": creator_id,
-    "diamonds_month": diamonds_month,
-    "live_days_valid": live_days_valid,
-    "live_hours_valid": live_hours_valid,
-    "status_excluding": status_excluding,
-}
-
-st.subheader("3) Calcul + Comparaison + Export")
-
-if st.button("Calculer récompenses (Créateurs)"):
-    result = compute_creators(df, mapping, conn, str(as_of))
-
-    if result.warnings:
-        st.error(" | ".join(result.warnings))
-        st.stop()
-
-    out = result.df
-
-    total_rewards = int(pd.to_numeric(out["Récompense (diamants)"], errors="coerce").fillna(0).sum())
-    nb_eligibles = int((out["Eligible"] == "OK").sum())
-
-    k1, k2, k3 = st.columns(3)
-    k1.metric("Total récompenses (recalculé)", f"{total_rewards:,}".replace(",", " "))
-    k2.metric("Nb éligibles", nb_eligibles)
-    k3.metric("Nb lignes", out.shape[0])
-
-    st.success("Calcul terminé")
-
-    show_cols = [creator_id, diamonds_month, live_days_valid, live_hours_valid, status_excluding]
-
-    if "Palier (source)" in out.columns:
-        show_cols += ["Palier (source)", "Palier"]
-    else:
-        show_cols += ["Palier"]
-
-    if "Taux appliqué (source)" in out.columns:
-        show_cols += ["Taux appliqué (source)", "Taux appliqué"]
-    else:
-        show_cols += ["Taux appliqué"]
-
-    if "Récompense (diamants) (source)" in out.columns:
-        show_cols += ["Récompense (diamants) (source)", "Récompense (diamants)"]
-    else:
-        show_cols += ["Récompense (diamants)"]
-
-    show_cols += ["Eligible", "Raison inéligibilité", "Déjà atteint 150k (Oui/Non)", "Premier mois 150k"]
-    show_cols = [c for c in show_cols if c in out.columns]
-
-    st.dataframe(out[show_cols].head(80), use_container_width=True)
-
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        out.to_excel(writer, index=False, sheet_name="RESULTATS_CREATEURS")
-
-    st.download_button(
-        "Télécharger le résultat Excel",
-        data=output.getvalue(),
-        file_name="resultats_createurs.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+def db_connect(db_path: str) -> sqlite3.Connection:
+    conn = sqlite3.connect(db_path)
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS creator_thresholds(
+        creator_id TEXT PRIMARY KEY,
+        first_reached_150k_date TEXT
     )
+    """)
+    conn.commit()
+    return conn
 
-st.caption("Règles: min 12 jours + 25h, statut excluant => inéligible, arrondi à 100, suivi 150k par ID.")
+
+def get_first_150k_date(conn: sqlite3.Connection, creator_id: str) -> Optional[str]:
+    cur = conn.cursor()
+    cur.execute("SELECT first_reached_150k_date FROM creator_thresholds WHERE creator_id = ?", (creator_id,))
+    row = cur.fetchone()
+    return row[0] if row else None
+
+
+def set_first_150k_date(conn: sqlite3.Connection, creator_id: str, date_str: str) -> None:
+    cur = conn.cursor()
+    cur.execute("SELECT creator_id FROM creator_thresholds WHERE creator_id = ?", (creator_id,))
+    if cur.fetchone() is None:
+        cur.execute(
+            "INSERT INTO creator_thresholds(creator_id, first_reached_150k_date) VALUES (?, ?)",
+            (creator_id, date_str),
+        )
+        conn.commit()
+
+
+def floor_to_step(x: float, step: int) -> int:
+    if step <= 1:
+        return int(np.floor(x))
+    return int(np.floor(x / step) * step)
+
+
+def pick_tier(diamonds: float, tiers: List[dict]) -> dict:
+    for t in tiers:
+        mn, mx = t["min"], t["max"]
+        if mx is None and diamonds >= mn:
+            return t
+        if mx is not None and diamonds >= mn and diamonds <= mx:
+            return t
+    return tiers[-1]
+
+
+def is_excluded(status_value) -> bool:
+    if pd.isna(status_value):
+        return False
+    s = str(status_value).strip().lower()
+    if s in ("non", "0", "false", ""):
+        return False
+    if s in ("oui", "1", "true"):
+        return True
+    if s in BANNED_STATUSES:
+        return True
+    return True
+
+
+@dataclass
+class ComputeResult:
+    df: pd.DataFrame
+    warnings: List[str]
+
+
+def compute_creators(
+    df: pd.DataFrame,
+    mapping: Dict[str, str],
+    conn: sqlite3.Connection,
+    as_of_date: str,
+) -> ComputeResult:
+    warnings: List[str] = []
+
+    required_keys = ["creator_id", "diamonds_month", "live_days_valid", "live_hours_valid", "status_excluding"]
+    for k in required_keys:
+        col = mapping.get(k)
+        if not col or col not in df.columns:
+            warnings.append(f"Colonne manquante ou non mappée: {k} -> '{col}'")
+
+    if warnings:
+        return ComputeResult(df=df.copy(), warnings=warnings)
+
+    id_col = mapping["creator_id"]
+    d_col = mapping["diamonds_month"]
+    days_col = mapping["live_days_valid"]
+    hours_col = mapping["live_hours_valid"]
+    status_col = mapping["status_excluding"]
+
+    out = df.copy()
+
+    out[d_col] = pd.to_numeric(out[d_col], errors="coerce").fillna(0)
+    out[days_col] = pd.to_numeric(out[days_col], errors="coerce").fillna(0)
+    out[hours_col] = pd.to_numeric(out[hours_col], errors="coerce").fillna(0)
+
+    tiers = []
+    percents = []
+    bonuses = []
+    rewards = []
+    eligibles = []
+    reasons = []
+    reached_flags = []
+    first_dates = []
+
+    for _, r in out.iterrows():
+        creator_id = str(r[id_col])
+        diamonds = float(r[d_col])
+        days = float(r[days_col])
+        hours = float(r[hours_col])
+        excluded = is_excluded(r[status_col])
+
+        eligible = True
+        rs = []
+
+        if excluded:
+            eligible = False
+            rs.append("statut_excluant")
+        if days < CREATORS_MIN_DAYS:
+            eligible = False
+            rs.append(f"jours<{CREATORS_MIN_DAYS}")
+        if hours < CREATORS_MIN_HOURS:
+            eligible = False
+            rs.append(f"heures<{CREATORS_MIN_HOURS}")
+
+        tier = pick_tier(diamonds, CREATORS_TIERS)
+        percent = float(tier["percent"])
+        bonus = float(tier.get("bonus", 0))
+
+        reward = 0
+        if eligible and percent > 0:
+            reward_calc = diamonds * percent + bonus
+            reward = floor_to_step(reward_calc, CREATORS_ROUND_STEP)
+
+        first = get_first_150k_date(conn, creator_id)
+        if first is None and diamonds >= THRESHOLD_150K:
+            set_first_150k_date(conn, creator_id, as_of_date)
+            first = as_of_date
+
+        tiers.append(tier["name"])
+        percents.append(percent)
+        bonuses.append(bonus)
+        rewards.append(reward)
+        eligibles.append("OK" if eligible else "NON")
+        reasons.append(";".join(rs))
+        reached_flags.append("Oui" if first is not None else "Non")
+        first_dates.append(first or "")
+
+    out["Palier"] = tiers
+    out["Taux appliqué"] = percents
+    out["Bonus"] = bonuses
+    out["Récompense (diamants)"] = rewards
+    out["Eligible"] = eligibles
+    out["Raison inéligibilité"] = reasons
+    out["Déjà atteint 150k (Oui/Non)"] = reached_flags
+    out["Premier mois 150k"] = first_dates
+
+    return ComputeResult(df=out, warnings=warnings)
